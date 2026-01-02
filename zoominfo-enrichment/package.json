@@ -1,0 +1,17 @@
+{
+  "name": "zoominfo-enrichment",
+  "version": "1.0.0",
+  "description": "ZoomInfo enrichment service for Blue Chip Manufacturing",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^17.2.3",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@vercel/node": "^3.0.0"
+  }
+}
