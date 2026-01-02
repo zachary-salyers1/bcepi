@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "ZoomInfo enrichment service for Blue Chip Manufacturing",
   "scripts": {
-    "dev": "vercel dev",
+    "start": "node api/index.js",
     "deploy": "vercel --prod"
   },
   "dependencies": {

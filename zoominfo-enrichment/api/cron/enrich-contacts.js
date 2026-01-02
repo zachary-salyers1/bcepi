@@ -17,6 +17,12 @@
  * 4. Save pagination cursor for next run
  */
 
+// Load environment variables from .env.local BEFORE requiring other modules
+// Use override: true to ensure local .env.local takes precedence over Vercel-injected vars
+const path = require('path');
+const envPath = path.join(process.cwd(), '.env.local');
+require('dotenv').config({ path: envPath, override: true });
+
 const HubSpotClient = require('../../lib/hubspot-client');
 const ZoomInfoClient = require('../../lib/zoominfo-client');
 const GoogleSheetsClient = require('../../lib/sheets-client');

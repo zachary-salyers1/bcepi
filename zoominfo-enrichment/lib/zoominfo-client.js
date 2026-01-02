@@ -204,29 +204,18 @@ class ZoomInfoClient {
           type: 'ContactEnrich',
           attributes: {
             matchPersonInput: [matchInput],
+            // Only request fields available in your ZoomInfo plan
+            // Add more fields here if you have access to them
             outputFields: [
               'id',
               'firstName',
               'lastName',
-              'middleName',
               'email',
-              'phone',
-              'directPhone',
-              'mobilePhone',
-              'companyPhone',
               'companyName',
-              'companyWebsite',
               'jobTitle',
-              'jobFunction',
-              'department',
-              'managementLevel',
-              'street',
               'city',
               'state',
-              'zipCode',
-              'country',
-              'linkedInUrl',
-              'contactAccuracyScore'
+              'country'
             ]
           }
         }
@@ -312,29 +301,17 @@ class ZoomInfoClient {
           type: 'ContactEnrich',
           attributes: {
             matchPersonInput,
+            // Only request fields available in your ZoomInfo plan
             outputFields: [
               'id',
               'firstName',
               'lastName',
-              'middleName',
               'email',
-              'phone',
-              'directPhone',
-              'mobilePhone',
-              'companyPhone',
               'companyName',
-              'companyWebsite',
               'jobTitle',
-              'jobFunction',
-              'department',
-              'managementLevel',
-              'street',
               'city',
               'state',
-              'zipCode',
-              'country',
-              'linkedInUrl',
-              'contactAccuracyScore'
+              'country'
             ]
           }
         }

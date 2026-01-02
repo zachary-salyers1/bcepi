@@ -75,13 +75,23 @@ NOTES: [If match, say 'Confirmed'. If mismatch, state the current company and/or
       // Parse Gemini response
       const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-      // Extract status and notes from response
+      // Extract status and notes from response - handle multi-line
       const statusMatch = text.match(/STATUS:\s*(MATCH|MISMATCH)/i);
-      const notesMatch = text.match(/NOTES:\s*(.+)/i);
+      const notesMatch = text.match(/NOTES:\s*(.+)/is); // s flag for dotall
+
+      // If no structured response, try to infer from text
+      let status = 'UNKNOWN';
+      if (statusMatch) {
+        status = statusMatch[1].toUpperCase();
+      } else if (text.toLowerCase().includes('match') && !text.toLowerCase().includes('mismatch')) {
+        status = 'MATCH';
+      } else if (text.toLowerCase().includes('mismatch') || text.toLowerCase().includes('not match') || text.toLowerCase().includes('does not')) {
+        status = 'MISMATCH';
+      }
 
       return {
-        status: statusMatch ? statusMatch[1].toUpperCase() : 'UNKNOWN',
-        notes: notesMatch ? notesMatch[1].trim() : text.substring(0, 200)
+        status,
+        notes: notesMatch ? notesMatch[1].trim().substring(0, 200) : text.substring(0, 200)
       };
     } catch (error) {
       console.error('Gemini validation error:', error.response?.data || error.message);

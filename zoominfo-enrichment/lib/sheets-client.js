@@ -9,7 +9,15 @@ class GoogleSheetsClient {
 
     // Service account credentials
     this.clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
-    this.privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    // Handle private key - may have literal \n or actual newlines, may have quotes
+    let rawKey = process.env.GOOGLE_PRIVATE_KEY || '';
+    // Remove surrounding quotes if present
+    if ((rawKey.startsWith('"') && rawKey.endsWith('"')) ||
+        (rawKey.startsWith("'") && rawKey.endsWith("'"))) {
+      rawKey = rawKey.slice(1, -1);
+    }
+    // Replace literal \n with actual newlines
+    this.privateKey = rawKey.replace(/\\n/g, '\n');
 
     if (!this.spreadsheetId) {
       console.warn('GOOGLE_SPREADSHEET_ID not set - Google Sheets logging disabled');
