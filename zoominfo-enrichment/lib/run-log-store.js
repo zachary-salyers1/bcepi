@@ -1,31 +1,37 @@
 /**
- * Run Log Store - Vercel KV storage for enrichment run history
+ * Run Log Store - Neon PostgreSQL storage for enrichment run history
  *
- * Keys:
- * - runs:list -> Array of last 100 run IDs (newest first)
- * - run:{id} -> Full run details object
- * - stats:cache -> Cached enrichment stats with TTL
+ * Tables:
+ * - runs -> Run metadata and summaries
+ * - run_contacts -> Individual contact processing results
+ * - stats_cache -> Cached enrichment stats
  */
 
-let kv;
-try {
-  kv = require('@vercel/kv');
-} catch (e) {
-  kv = null;
-}
+// Ensure dotenv is loaded before accessing DATABASE_URL
+const path = require('path');
+require('dotenv').config({ path: path.join(process.cwd(), '.env.local'), override: true });
 
-// In-memory fallback for local development
-const memoryStore = {
-  data: {},
-  get: async (key) => memoryStore.data[key] || null,
-  set: async (key, value) => { memoryStore.data[key] = value; },
-  del: async (key) => { delete memoryStore.data[key]; }
-};
+const { neon } = require('@neondatabase/serverless');
 
 class RunLogStore {
   constructor() {
-    this.store = kv || memoryStore;
+    this.sql = null;
     this.maxRuns = 100;
+  }
+
+  /**
+   * Get SQL client (lazy initialization)
+   */
+  getClient() {
+    if (!this.sql) {
+      const databaseUrl = process.env.DATABASE_URL;
+      if (!databaseUrl) {
+        console.warn('DATABASE_URL not set - run logging disabled');
+        return null;
+      }
+      this.sql = neon(databaseUrl);
+    }
+    return this.sql;
   }
 
   /**
@@ -41,43 +47,45 @@ class RunLogStore {
    * @returns {Object} { runId, run }
    */
   async startRun(trigger = 'cron') {
-    const runId = this.generateRunId();
-    const run = {
-      id: runId,
-      trigger,
-      status: 'running',
-      startTime: new Date().toISOString(),
-      endTime: null,
-      duration: null,
-      summary: {
-        processed: 0,
-        enriched: 0,
-        skipped: 0,
-        errors: 0
-      },
-      contacts: [],
-      cursor: null,
-      nextCursor: null,
-      error: null
-    };
-
-    await this.store.set(`run:${runId}`, run);
-
-    // Add to runs list
-    let runsList = await this.store.get('runs:list') || [];
-    runsList.unshift(runId);
-
-    // Keep only last N runs
-    if (runsList.length > this.maxRuns) {
-      const toDelete = runsList.splice(this.maxRuns);
-      for (const oldRunId of toDelete) {
-        await this.store.del(`run:${oldRunId}`);
-      }
+    const sql = this.getClient();
+    if (!sql) {
+      const runId = this.generateRunId();
+      return { runId, run: { id: runId, status: 'running' } };
     }
 
-    await this.store.set('runs:list', runsList);
+    const runId = this.generateRunId();
+    const summary = { processed: 0, enriched: 0, skipped: 0, errors: 0 };
 
-    return { runId, run };
+    try {
+      await sql`
+        INSERT INTO runs (id, trigger, status, summary)
+        VALUES (${runId}, ${trigger}, 'running', ${JSON.stringify(summary)})
+      `;
+
+      // Clean up old runs (keep last N)
+      await sql`
+        DELETE FROM runs
+        WHERE id IN (
+          SELECT id FROM runs
+          ORDER BY start_time DESC
+          OFFSET ${this.maxRuns}
+        )
+      `;
+
+      return {
+        runId,
+        run: {
+          id: runId,
+          trigger,
+          status: 'running',
+          startTime: new Date().toISOString(),
+          summary
+        }
+      };
+    } catch (error) {
+      console.error('Failed to start run:', error.message);
+      return { runId, run: { id: runId, status: 'running' } };
+    }
   }
 
   /**
@@ -86,26 +94,45 @@ class RunLogStore {
    * @param {Object} contact - { id, email, status, reason, fieldsUpdated, validation }
    */
   async addContact(runId, contact) {
-    const run = await this.store.get(`run:${runId}`);
-    if (!run) return;
+    const sql = this.getClient();
+    if (!sql) return;
 
-    run.contacts.push({
-      id: contact.id,
-      email: contact.email || 'unknown',
-      status: contact.status, // 'enriched', 'skipped', 'error'
-      reason: contact.reason || null,
-      fieldsUpdated: contact.fieldsUpdated || [],
-      validation: contact.validation || null,
-      timestamp: new Date().toISOString()
-    });
+    try {
+      // Insert contact record
+      await sql`
+        INSERT INTO run_contacts (run_id, contact_id, email, status, reason, fields_updated, validation)
+        VALUES (
+          ${runId},
+          ${contact.id},
+          ${contact.email || 'unknown'},
+          ${contact.status},
+          ${contact.reason || null},
+          ${JSON.stringify(contact.fieldsUpdated || [])},
+          ${contact.validation ? JSON.stringify(contact.validation) : null}
+        )
+      `;
 
-    // Update summary counts
-    run.summary.processed++;
-    if (contact.status === 'enriched') run.summary.enriched++;
-    else if (contact.status === 'skipped') run.summary.skipped++;
-    else if (contact.status === 'error') run.summary.errors++;
+      // Update run summary counts
+      const statusField = contact.status === 'enriched' ? 'enriched'
+        : contact.status === 'skipped' ? 'skipped'
+        : 'errors';
 
-    await this.store.set(`run:${runId}`, run);
+      await sql`
+        UPDATE runs
+        SET summary = jsonb_set(
+          jsonb_set(
+            summary,
+            '{processed}',
+            to_jsonb((summary->>'processed')::int + 1)
+          ),
+          ${'{' + statusField + '}'},
+          to_jsonb((summary->>${statusField})::int + 1)
+        )
+        WHERE id = ${runId}
+      `;
+    } catch (error) {
+      console.error('Failed to add contact:', error.message);
+    }
   }
 
   /**
@@ -114,16 +141,35 @@ class RunLogStore {
    * @param {Object} options - { nextCursor }
    */
   async completeRun(runId, options = {}) {
-    const run = await this.store.get(`run:${runId}`);
-    if (!run) return;
+    const sql = this.getClient();
+    if (!sql) return null;
 
-    run.status = 'completed';
-    run.endTime = new Date().toISOString();
-    run.duration = Date.now() - new Date(run.startTime).getTime();
-    run.nextCursor = options.nextCursor || null;
+    try {
+      const result = await sql`
+        UPDATE runs
+        SET status = 'completed',
+            end_time = NOW(),
+            next_cursor = ${options.nextCursor || null}
+        WHERE id = ${runId}
+        RETURNING *
+      `;
 
-    await this.store.set(`run:${runId}`, run);
-    return run;
+      if (result.length > 0) {
+        const run = result[0];
+        return {
+          id: run.id,
+          status: run.status,
+          startTime: run.start_time,
+          endTime: run.end_time,
+          summary: run.summary,
+          nextCursor: run.next_cursor
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to complete run:', error.message);
+      return null;
+    }
   }
 
   /**
@@ -132,24 +178,88 @@ class RunLogStore {
    * @param {string} error
    */
   async failRun(runId, error) {
-    const run = await this.store.get(`run:${runId}`);
-    if (!run) return;
+    const sql = this.getClient();
+    if (!sql) return null;
 
-    run.status = 'failed';
-    run.endTime = new Date().toISOString();
-    run.duration = Date.now() - new Date(run.startTime).getTime();
-    run.error = error;
+    try {
+      const result = await sql`
+        UPDATE runs
+        SET status = 'failed',
+            end_time = NOW(),
+            error_message = ${error}
+        WHERE id = ${runId}
+        RETURNING *
+      `;
 
-    await this.store.set(`run:${runId}`, run);
-    return run;
+      if (result.length > 0) {
+        const run = result[0];
+        return {
+          id: run.id,
+          status: run.status,
+          startTime: run.start_time,
+          endTime: run.end_time,
+          summary: run.summary,
+          error: run.error_message
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to fail run:', error.message);
+      return null;
+    }
   }
 
   /**
-   * Get a run by ID
+   * Get a run by ID (including contacts)
    * @param {string} runId
    */
   async getRun(runId) {
-    return await this.store.get(`run:${runId}`);
+    const sql = this.getClient();
+    if (!sql) return null;
+
+    try {
+      // Get run
+      const runResult = await sql`
+        SELECT * FROM runs WHERE id = ${runId}
+      `;
+
+      if (runResult.length === 0) return null;
+
+      const run = runResult[0];
+
+      // Get contacts for this run
+      const contacts = await sql`
+        SELECT * FROM run_contacts
+        WHERE run_id = ${runId}
+        ORDER BY processed_at ASC
+      `;
+
+      return {
+        id: run.id,
+        trigger: run.trigger,
+        status: run.status,
+        startTime: run.start_time,
+        endTime: run.end_time,
+        duration: run.end_time
+          ? new Date(run.end_time).getTime() - new Date(run.start_time).getTime()
+          : null,
+        summary: run.summary,
+        nextCursor: run.next_cursor,
+        error: run.error_message,
+        contacts: contacts.map(c => ({
+          id: c.contact_id,
+          email: c.email,
+          status: c.status,
+          reason: c.reason,
+          fieldsUpdated: c.fields_updated,
+          validation: c.validation,
+          timestamp: c.processed_at
+        }))
+      };
+    } catch (error) {
+      console.error('Failed to get run:', error.message);
+      return null;
+    }
   }
 
   /**
@@ -157,59 +267,123 @@ class RunLogStore {
    * @param {number} limit
    */
   async getRecentRuns(limit = 20) {
-    const runsList = await this.store.get('runs:list') || [];
-    const runs = [];
+    const sql = this.getClient();
+    if (!sql) return [];
 
-    for (const runId of runsList.slice(0, limit)) {
-      const run = await this.store.get(`run:${runId}`);
-      if (run) {
-        // Return summary only, not full contact details
-        runs.push({
-          id: run.id,
-          trigger: run.trigger,
-          status: run.status,
-          startTime: run.startTime,
-          endTime: run.endTime,
-          duration: run.duration,
-          summary: run.summary,
-          error: run.error
-        });
-      }
+    try {
+      const runs = await sql`
+        SELECT id, trigger, status, start_time, end_time, summary, error_message
+        FROM runs
+        ORDER BY start_time DESC
+        LIMIT ${limit}
+      `;
+
+      return runs.map(run => ({
+        id: run.id,
+        trigger: run.trigger,
+        status: run.status,
+        startTime: run.start_time,
+        endTime: run.end_time,
+        duration: run.end_time
+          ? new Date(run.end_time).getTime() - new Date(run.start_time).getTime()
+          : null,
+        summary: run.summary,
+        error: run.error_message
+      }));
+    } catch (error) {
+      console.error('Failed to get recent runs:', error.message);
+      return [];
     }
-
-    return runs;
   }
 
   /**
    * Get the currently running run (if any)
    */
   async getCurrentRun() {
-    const runsList = await this.store.get('runs:list') || [];
-    if (runsList.length === 0) return null;
+    const sql = this.getClient();
+    if (!sql) return null;
 
-    const latestRun = await this.store.get(`run:${runsList[0]}`);
-    if (latestRun && latestRun.status === 'running') {
-      return latestRun;
+    try {
+      const result = await sql`
+        SELECT id, trigger, status, start_time, summary
+        FROM runs
+        WHERE status = 'running'
+        ORDER BY start_time DESC
+        LIMIT 1
+      `;
+
+      if (result.length === 0) return null;
+
+      const run = result[0];
+      return {
+        id: run.id,
+        trigger: run.trigger,
+        status: run.status,
+        startTime: run.start_time,
+        summary: run.summary
+      };
+    } catch (error) {
+      console.error('Failed to get current run:', error.message);
+      return null;
     }
-    return null;
   }
 
   /**
    * Cache enrichment stats
-   * @param {Object} stats - { unenrichedCount, totalCount }
+   * @param {Object} stats - { totalCount, enrichedCount, unenrichedCount }
    */
   async cacheStats(stats) {
-    await this.store.set('stats:cache', {
-      ...stats,
-      cachedAt: new Date().toISOString()
-    });
+    const sql = this.getClient();
+    if (!sql) return;
+
+    try {
+      const percentComplete = stats.totalCount > 0
+        ? ((stats.enrichedCount / stats.totalCount) * 100).toFixed(1)
+        : 0;
+
+      await sql`
+        INSERT INTO stats_cache (id, total_count, enriched_count, unenriched_count, percent_complete, list_id, cached_at)
+        VALUES (1, ${stats.totalCount}, ${stats.enrichedCount}, ${stats.unenrichedCount}, ${percentComplete}, ${stats.listId || null}, NOW())
+        ON CONFLICT (id) DO UPDATE SET
+          total_count = ${stats.totalCount},
+          enriched_count = ${stats.enrichedCount},
+          unenriched_count = ${stats.unenrichedCount},
+          percent_complete = ${percentComplete},
+          list_id = ${stats.listId || null},
+          cached_at = NOW()
+      `;
+    } catch (error) {
+      console.error('Failed to cache stats:', error.message);
+    }
   }
 
   /**
    * Get cached stats
    */
   async getCachedStats() {
-    return await this.store.get('stats:cache');
+    const sql = this.getClient();
+    if (!sql) return null;
+
+    try {
+      const result = await sql`
+        SELECT * FROM stats_cache WHERE id = 1
+      `;
+
+      if (result.length === 0) return null;
+
+      const stats = result[0];
+      return {
+        totalCount: stats.total_count,
+        enrichedCount: stats.enriched_count,
+        unenrichedCount: stats.unenriched_count,
+        percentComplete: parseFloat(stats.percent_complete),
+        listId: stats.list_id,
+        cachedAt: stats.cached_at
+      };
+    } catch (error) {
+      console.error('Failed to get cached stats:', error.message);
+      return null;
+    }
   }
 }
 
