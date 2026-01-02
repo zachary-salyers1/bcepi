@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZoomInfo Enrichment Dashboard</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      margin-bottom: 1.5rem;
+      color: #f8fafc;
+    }
+
+    /* Auth Modal */
+    .auth-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+
+    .auth-modal.hidden {
+      display: none;
+    }
+
+    .auth-box {
+      background: #1e293b;
+      padding: 2rem;
+      border-radius: 0.5rem;
+      width: 100%;
+      max-width: 320px;
+    }
+
+    .auth-box h2 {
+      margin-bottom: 1rem;
+      font-size: 1.25rem;
+    }
+
+    .auth-box input {
+      width: 100%;
+      padding: 0.75rem;
+      border: 1px solid #334155;
+      border-radius: 0.375rem;
+      background: #0f172a;
+      color: #e2e8f0;
+      margin-bottom: 1rem;
+    }
+
+    .auth-box button {
+      width: 100%;
+      padding: 0.75rem;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 0.375rem;
+      cursor: pointer;
+      font-weight: 500;
+    }
+
+    .auth-box button:hover {
+      background: #2563eb;
+    }
+
+    .auth-error {
+      color: #f87171;
+      font-size: 0.875rem;
+      margin-top: 0.5rem;
+    }
+
+    /* Stats Card */
+    .stats-card {
+      background: #1e293b;
+      border-radius: 0.5rem;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .stats-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+
+    .stats-title {
+      font-size: 0.875rem;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .stats-value {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+
+    .stats-detail {
+      font-size: 0.875rem;
+      color: #94a3b8;
+      margin-top: 0.25rem;
+    }
+
+    /* Progress Bar */
+    .progress-container {
+      margin-top: 1rem;
+    }
+
+    .progress-bar {
+      height: 0.5rem;
+      background: #334155;
+      border-radius: 9999px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #3b82f6, #10b981);
+      border-radius: 9999px;
+      transition: width 0.5s ease;
+    }
+
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 0.5rem;
+      font-size: 0.75rem;
+      color: #94a3b8;
+    }
+
+    /* Actions */
+    .actions {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .btn {
+      padding: 0.75rem 1.5rem;
+      border: none;
+      border-radius: 0.375rem;
+      cursor: pointer;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .btn-primary {
+      background: #3b82f6;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #2563eb;
+    }
+
+    .btn-primary:disabled {
+      background: #475569;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: #334155;
+      color: #e2e8f0;
+    }
+
+    .btn-secondary:hover {
+      background: #475569;
+    }
+
+    /* Runs Table */
+    .runs-section {
+      background: #1e293b;
+      border-radius: 0.5rem;
+      overflow: hidden;
+    }
+
+    .runs-header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid #334155;
+      font-weight: 600;
+    }
+
+    .run-item {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid #334155;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .run-item:hover {
+      background: #334155;
+    }
+
+    .run-item:last-child {
+      border-bottom: none;
+    }
+
+    .run-summary {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .run-status {
+      width: 0.5rem;
+      height: 0.5rem;
+      border-radius: 9999px;
+    }
+
+    .run-status.completed { background: #10b981; }
+    .run-status.running { background: #f59e0b; animation: pulse 1s infinite; }
+    .run-status.failed { background: #ef4444; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .run-time {
+      font-size: 0.875rem;
+      color: #94a3b8;
+      min-width: 120px;
+    }
+
+    .run-trigger {
+      font-size: 0.75rem;
+      padding: 0.25rem 0.5rem;
+      background: #334155;
+      border-radius: 0.25rem;
+      color: #94a3b8;
+    }
+
+    .run-stats {
+      display: flex;
+      gap: 1rem;
+      margin-left: auto;
+      font-size: 0.875rem;
+    }
+
+    .run-stat {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    .run-stat.enriched { color: #10b981; }
+    .run-stat.skipped { color: #f59e0b; }
+    .run-stat.errors { color: #ef4444; }
+
+    /* Run Details */
+    .run-details {
+      display: none;
+      padding: 1rem 1.5rem;
+      background: #0f172a;
+      border-bottom: 1px solid #334155;
+    }
+
+    .run-details.expanded {
+      display: block;
+    }
+
+    .contact-list {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .contact-item {
+      display: flex;
+      align-items: center;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #1e293b;
+      font-size: 0.875rem;
+    }
+
+    .contact-item:last-child {
+      border-bottom: none;
+    }
+
+    .contact-status {
+      width: 1.25rem;
+      text-align: center;
+      margin-right: 0.75rem;
+    }
+
+    .contact-status.enriched { color: #10b981; }
+    .contact-status.skipped { color: #f59e0b; }
+    .contact-status.error { color: #ef4444; }
+
+    .contact-email {
+      flex: 1;
+      color: #e2e8f0;
+    }
+
+    .contact-reason {
+      color: #94a3b8;
+      font-size: 0.75rem;
+      margin-left: 1rem;
+    }
+
+    .contact-fields {
+      color: #3b82f6;
+      font-size: 0.75rem;
+      margin-left: 1rem;
+    }
+
+    /* Loading */
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      color: #94a3b8;
+    }
+
+    .spinner {
+      width: 1.5rem;
+      height: 1.5rem;
+      border: 2px solid #334155;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-right: 0.75rem;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Empty state */
+    .empty-state {
+      padding: 2rem;
+      text-align: center;
+      color: #94a3b8;
+    }
+
+    /* Cache info */
+    .cache-info {
+      font-size: 0.75rem;
+      color: #64748b;
+      margin-top: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <!-- Auth Modal -->
+  <div id="authModal" class="auth-modal">
+    <div class="auth-box">
+      <h2>Dashboard Access</h2>
+      <input type="password" id="passwordInput" placeholder="Enter password" autofocus>
+      <button onclick="authenticate()">Login</button>
+      <div id="authError" class="auth-error" style="display: none;"></div>
+    </div>
+  </div>
+
+  <div class="container">
+    <h1>ZoomInfo Enrichment Dashboard</h1>
+
+    <!-- Stats Card -->
+    <div class="stats-card">
+      <div class="stats-header">
+        <span class="stats-title">Enrichment Progress</span>
+        <span id="currentRunBadge" style="display: none; color: #f59e0b; font-size: 0.875rem;">
+          <span class="spinner" style="width: 1rem; height: 1rem; display: inline-block; vertical-align: middle;"></span>
+          Run in progress...
+        </span>
+      </div>
+      <div id="statsContent">
+        <div class="loading">
+          <div class="spinner"></div>
+          Loading stats...
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="actions">
+      <button id="runBatchBtn" class="btn btn-primary" onclick="triggerBatch()">
+        <span>&#9654;</span> Run Batch Now
+      </button>
+      <button class="btn btn-secondary" onclick="refreshStats()">
+        <span>&#8635;</span> Refresh Stats
+      </button>
+    </div>
+
+    <!-- Runs Section -->
+    <div class="runs-section">
+      <div class="runs-header">Recent Runs</div>
+      <div id="runsContent">
+        <div class="loading">
+          <div class="spinner"></div>
+          Loading runs...
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let password = localStorage.getItem('dashboardPassword') || '';
+    let autoRefreshInterval = null;
+
+    // Check auth on load
+    document.addEventListener('DOMContentLoaded', async () => {
+      if (password) {
+        const valid = await testAuth();
+        if (valid) {
+          document.getElementById('authModal').classList.add('hidden');
+          init();
+        } else {
+          localStorage.removeItem('dashboardPassword');
+          password = '';
+        }
+      }
+
+      // Handle enter key in password field
+      document.getElementById('passwordInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') authenticate();
+      });
+    });
+
+    async function authenticate() {
+      password = document.getElementById('passwordInput').value;
+      const valid = await testAuth();
+
+      if (valid) {
+        localStorage.setItem('dashboardPassword', password);
+        document.getElementById('authModal').classList.add('hidden');
+        init();
+      } else {
+        document.getElementById('authError').textContent = 'Invalid password';
+        document.getElementById('authError').style.display = 'block';
+      }
+    }
+
+    async function testAuth() {
+      try {
+        const res = await fetch('/api/dashboard/stats', {
+          headers: { 'X-Dashboard-Password': password }
+        });
+        return res.ok;
+      } catch {
+        return false;
+      }
+    }
+
+    function init() {
+      refreshStats();
+      loadRuns();
+
+      // Auto-refresh every 30 seconds
+      autoRefreshInterval = setInterval(() => {
+        refreshStats();
+        loadRuns();
+      }, 30000);
+    }
+
+    async function refreshStats() {
+      try {
+        const res = await fetch('/api/dashboard/stats?refresh=true', {
+          headers: { 'X-Dashboard-Password': password }
+        });
+        const data = await res.json();
+
+        if (!data.success) throw new Error(data.error);
+
+        const stats = data.stats;
+        const percentComplete = stats.percentComplete || 0;
+
+        document.getElementById('statsContent').innerHTML = `
+          <div class="stats-value">${stats.unenrichedCount.toLocaleString()} <span style="font-size: 1rem; color: #94a3b8;">unenriched</span></div>
+          <div class="stats-detail">${stats.enrichedCount.toLocaleString()} enriched of ${stats.totalCount.toLocaleString()} total in list ${stats.listId}</div>
+          <div class="progress-container">
+            <div class="progress-bar">
+              <div class="progress-fill" style="width: ${percentComplete}%"></div>
+            </div>
+            <div class="progress-label">
+              <span>${percentComplete.toFixed(1)}% complete</span>
+              <span>${stats.unenrichedCount.toLocaleString()} remaining</span>
+            </div>
+          </div>
+          <div class="cache-info">Last updated: ${new Date(data.cachedAt).toLocaleTimeString()}</div>
+        `;
+
+        // Show current run indicator
+        if (data.currentRun) {
+          document.getElementById('currentRunBadge').style.display = 'inline';
+          // Poll more frequently during active run
+          clearInterval(autoRefreshInterval);
+          autoRefreshInterval = setInterval(() => {
+            refreshStats();
+            loadRuns();
+          }, 5000);
+        } else {
+          document.getElementById('currentRunBadge').style.display = 'none';
+          // Reset to normal polling
+          clearInterval(autoRefreshInterval);
+          autoRefreshInterval = setInterval(() => {
+            refreshStats();
+            loadRuns();
+          }, 30000);
+        }
+      } catch (error) {
+        document.getElementById('statsContent').innerHTML = `
+          <div style="color: #ef4444;">Error loading stats: ${error.message}</div>
+        `;
+      }
+    }
+
+    async function loadRuns() {
+      try {
+        const res = await fetch('/api/dashboard/runs?limit=20', {
+          headers: { 'X-Dashboard-Password': password }
+        });
+        const data = await res.json();
+
+        if (!data.success) throw new Error(data.error);
+
+        if (data.runs.length === 0) {
+          document.getElementById('runsContent').innerHTML = `
+            <div class="empty-state">No runs yet. Click "Run Batch Now" to start.</div>
+          `;
+          return;
+        }
+
+        document.getElementById('runsContent').innerHTML = data.runs.map(run => `
+          <div class="run-item" onclick="toggleRunDetails('${run.id}', this)">
+            <div class="run-summary">
+              <div class="run-status ${run.status}"></div>
+              <div class="run-time">${formatTime(run.startTime)}</div>
+              <div class="run-trigger">${run.trigger}</div>
+              <div class="run-stats">
+                <span class="run-stat">${run.summary.processed} processed</span>
+                <span class="run-stat enriched">${run.summary.enriched} enriched</span>
+                <span class="run-stat skipped">${run.summary.skipped} skipped</span>
+                ${run.summary.errors > 0 ? `<span class="run-stat errors">${run.summary.errors} errors</span>` : ''}
+              </div>
+            </div>
+          </div>
+          <div id="details-${run.id}" class="run-details"></div>
+        `).join('');
+      } catch (error) {
+        document.getElementById('runsContent').innerHTML = `
+          <div style="color: #ef4444; padding: 1rem;">Error loading runs: ${error.message}</div>
+        `;
+      }
+    }
+
+    async function toggleRunDetails(runId, element) {
+      const detailsEl = document.getElementById(`details-${runId}`);
+
+      if (detailsEl.classList.contains('expanded')) {
+        detailsEl.classList.remove('expanded');
+        return;
+      }
+
+      // Load details if not already loaded
+      if (!detailsEl.dataset.loaded) {
+        detailsEl.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+        detailsEl.classList.add('expanded');
+
+        try {
+          const res = await fetch(`/api/dashboard/run/${runId}`, {
+            headers: { 'X-Dashboard-Password': password }
+          });
+          const data = await res.json();
+
+          if (!data.success) throw new Error(data.error);
+
+          const run = data.run;
+          detailsEl.innerHTML = `
+            <div class="contact-list">
+              ${run.contacts.map(c => `
+                <div class="contact-item">
+                  <div class="contact-status ${c.status}">${getStatusIcon(c.status)}</div>
+                  <div class="contact-email">${c.email}</div>
+                  ${c.reason ? `<div class="contact-reason">${formatReason(c.reason)}</div>` : ''}
+                  ${c.fieldsUpdated?.length > 0 ? `<div class="contact-fields">+${c.fieldsUpdated.length} fields</div>` : ''}
+                </div>
+              `).join('')}
+            </div>
+          `;
+          detailsEl.dataset.loaded = 'true';
+        } catch (error) {
+          detailsEl.innerHTML = `<div style="color: #ef4444;">Error: ${error.message}</div>`;
+        }
+      } else {
+        detailsEl.classList.add('expanded');
+      }
+    }
+
+    async function triggerBatch() {
+      const btn = document.getElementById('runBatchBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner" style="width: 1rem; height: 1rem;"></span> Running...';
+
+      try {
+        const res = await fetch('/api/dashboard/trigger', {
+          method: 'POST',
+          headers: { 'X-Dashboard-Password': password }
+        });
+        const data = await res.json();
+
+        if (res.status === 409) {
+          alert('A run is already in progress');
+        } else if (!data.success) {
+          alert('Error: ' + (data.error || data.message));
+        } else {
+          // Refresh to show new run
+          await loadRuns();
+          await refreshStats();
+        }
+      } catch (error) {
+        alert('Error triggering batch: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span>&#9654;</span> Run Batch Now';
+      }
+    }
+
+    function formatTime(isoString) {
+      const date = new Date(isoString);
+      const now = new Date();
+      const diffMs = now - date;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+
+      if (diffMins < 1) return 'Just now';
+      if (diffMins < 60) return `${diffMins}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+
+      return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function getStatusIcon(status) {
+      switch (status) {
+        case 'enriched': return '&#10003;';
+        case 'skipped': return '&#8856;';
+        case 'error': return '&#10007;';
+        default: return '?';
+      }
+    }
+
+    function formatReason(reason) {
+      const map = {
+        'already_enriched': 'Already enriched',
+        'no_email': 'No email',
+        'no_zoominfo_match': 'No ZoomInfo match',
+        'no_company_id': 'No company ID',
+        'zoominfo_limit_exceeded': 'Limit exceeded'
+      };
+      return map[reason] || reason;
+    }
+  </script>
+</body>
+</html>

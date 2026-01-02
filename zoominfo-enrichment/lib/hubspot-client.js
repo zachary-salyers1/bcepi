@@ -174,6 +174,95 @@ class HubSpotClient {
       throw error;
     }
   }
+
+  /**
+   * Get enrichment stats for a list
+   * Counts total contacts and unenriched contacts (where zoominfo_enriched != 'true')
+   * @param {string} listId - The HubSpot list ID
+   * @returns {Object} { totalCount, unenrichedCount, enrichedCount }
+   */
+  async getEnrichmentStats(listId) {
+    try {
+      // Get total count by paginating through list
+      let totalCount = 0;
+      let enrichedCount = 0;
+      let after = null;
+
+      // Paginate through list to count
+      do {
+        const memberships = await this.getListMemberships(listId, 100, after);
+        const contactIds = memberships.results.map(r => r.recordId || r);
+
+        if (contactIds.length === 0) break;
+
+        // Batch get contacts to check zoominfo_enriched
+        const contacts = await this.batchGetContacts(contactIds);
+
+        totalCount += contacts.length;
+        enrichedCount += contacts.filter(c =>
+          c.properties?.zoominfo_enriched === 'true'
+        ).length;
+
+        after = memberships.paging?.next?.after || null;
+      } while (after);
+
+      return {
+        totalCount,
+        enrichedCount,
+        unenrichedCount: totalCount - enrichedCount
+      };
+    } catch (error) {
+      console.error('Error getting enrichment stats:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get quick estimate of unenriched count using search API
+   * Faster than full pagination but may be less accurate
+   * @param {string} listId - The HubSpot list ID
+   * @returns {Object} { unenrichedCount, totalCount }
+   */
+  async getQuickEnrichmentStats(listId) {
+    try {
+      // Use search API to count unenriched contacts
+      // Note: This searches all contacts, not just list members
+      // For accurate list-specific counts, use getEnrichmentStats
+
+      const searchResponse = await axios.post(
+        `${this.baseURL}/crm/v3/objects/contacts/search`,
+        {
+          filterGroups: [{
+            filters: [{
+              propertyName: 'zoominfo_enriched',
+              operator: 'NOT_HAS_PROPERTY'
+            }]
+          }, {
+            filters: [{
+              propertyName: 'zoominfo_enriched',
+              operator: 'NEQ',
+              value: 'true'
+            }]
+          }],
+          limit: 0
+        },
+        { headers: this.getHeaders() }
+      );
+
+      // Get total list count
+      const listResponse = await this.getListMemberships(listId, 1);
+      const totalEstimate = listResponse.paging?.next ? 'many' : listResponse.results.length;
+
+      return {
+        unenrichedCount: searchResponse.data.total || 0,
+        note: 'Global count, not list-specific'
+      };
+    } catch (error) {
+      console.error('Error getting quick stats:', error.response?.data || error.message);
+      // Return null on error, caller can fall back to full count
+      return null;
+    }
+  }
 }
 
 module.exports = HubSpotClient;

@@ -27,6 +27,7 @@ const HubSpotClient = require('../../lib/hubspot-client');
 const ZoomInfoClient = require('../../lib/zoominfo-client');
 const GoogleSheetsClient = require('../../lib/sheets-client');
 const GeminiClient = require('../../lib/gemini-client');
+const RunLogStore = require('../../lib/run-log-store');
 
 // Vercel KV for pagination state (or use env var fallback)
 let kv;
@@ -268,8 +269,11 @@ module.exports = async (req, res) => {
     }
   }
 
+  // Determine trigger source
+  const triggerSource = req.headers['x-trigger-source'] === 'manual' ? 'manual' : 'cron';
+
   console.log('=== Starting Contact Enrichment ===');
-  console.log(`Batch size: ${BATCH_SIZE}, Delay: ${DELAY_BETWEEN_CONTACTS_MS}ms`);
+  console.log(`Trigger: ${triggerSource}, Batch size: ${BATCH_SIZE}, Delay: ${DELAY_BETWEEN_CONTACTS_MS}ms`);
 
   const startTime = Date.now();
   const results = {
@@ -280,7 +284,16 @@ module.exports = async (req, res) => {
     details: []
   };
 
+  // Initialize run logging
+  const runStore = new RunLogStore();
+  let runId = null;
+
   try {
+    // Start run logging
+    const runStart = await runStore.startRun(triggerSource);
+    runId = runStart.runId;
+    console.log(`Run ID: ${runId}`);
+
     // Initialize clients
     const hubspot = new HubSpotClient();
     const zoominfo = new ZoomInfoClient();
@@ -300,9 +313,11 @@ module.exports = async (req, res) => {
     if (contactIds.length === 0) {
       console.log('No more contacts to process - resetting cursor');
       await saveCursor(null);
+      await runStore.completeRun(runId, { nextCursor: null });
       return res.status(200).json({
         message: 'No contacts to process',
-        cursor: null
+        cursor: null,
+        runId
       });
     }
 
@@ -312,9 +327,20 @@ module.exports = async (req, res) => {
     // Process each contact
     for (const contact of contacts) {
       const result = await processContact(contact, hubspot, zoominfo, gemini, sheets);
+      const props = contact.properties || {};
 
       results.processed++;
       results.details.push(result);
+
+      // Log contact to run store
+      await runStore.addContact(runId, {
+        id: contact.id,
+        email: props.email || 'unknown',
+        status: result.success ? 'enriched' : (result.skipped ? 'skipped' : 'error'),
+        reason: result.reason || null,
+        fieldsUpdated: result.fields || [],
+        validation: result.validation || null
+      });
 
       if (result.success) {
         results.enriched++;
@@ -340,12 +366,24 @@ module.exports = async (req, res) => {
     const nextCursor = memberships.paging?.next?.after || null;
     await saveCursor(nextCursor);
 
+    // Complete the run
+    await runStore.completeRun(runId, { nextCursor });
+
+    // Update cached stats
+    try {
+      const stats = await hubspot.getEnrichmentStats(HUBSPOT_LIST_ID);
+      await runStore.cacheStats(stats);
+    } catch (statsError) {
+      console.error('Failed to update stats cache:', statsError.message);
+    }
+
     const duration = Date.now() - startTime;
     console.log(`=== Completed in ${duration}ms ===`);
     console.log(`Processed: ${results.processed}, Enriched: ${results.enriched}, Skipped: ${results.skipped}, Errors: ${results.errors}`);
 
     return res.status(200).json({
       success: true,
+      runId,
       duration: `${duration}ms`,
       nextCursor,
       summary: {
@@ -360,9 +398,15 @@ module.exports = async (req, res) => {
   } catch (error) {
     console.error('Cron job failed:', error);
 
+    // Mark run as failed
+    if (runId) {
+      await runStore.failRun(runId, error.message);
+    }
+
     return res.status(500).json({
       error: 'Enrichment failed',
       message: error.message,
+      runId,
       duration: `${Date.now() - startTime}ms`,
       results
     });
