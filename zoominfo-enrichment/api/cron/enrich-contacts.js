@@ -300,29 +300,28 @@ module.exports = async (req, res) => {
     const sheets = new GoogleSheetsClient();
     const gemini = new GeminiClient();
 
-    // Get pagination cursor
+    // Get pagination cursor for unenriched contacts search
     const cursor = await getCursor();
     console.log(`Starting from cursor: ${cursor || 'beginning'}`);
 
-    // Fetch contact IDs from HubSpot list
-    const memberships = await hubspot.getListMemberships(HUBSPOT_LIST_ID, BATCH_SIZE, cursor);
-    const contactIds = memberships.results.map(r => r.recordId || r);
+    // Fetch ONLY unenriched contacts from HubSpot list
+    // This uses search API to find contacts where zoominfo_enriched != 'true'
+    const searchResult = await hubspot.getUnenrichedContacts(HUBSPOT_LIST_ID, BATCH_SIZE, cursor);
+    const contacts = searchResult.results;
 
-    console.log(`Fetched ${contactIds.length} contacts from list ${HUBSPOT_LIST_ID}`);
+    console.log(`Found ${contacts.length} unenriched contacts (${searchResult.total} total unenriched in list ${HUBSPOT_LIST_ID})`);
 
-    if (contactIds.length === 0) {
-      console.log('No more contacts to process - resetting cursor');
+    if (contacts.length === 0) {
+      console.log('No unenriched contacts remaining - enrichment complete!');
       await saveCursor(null);
       await runStore.completeRun(runId, { nextCursor: null });
       return res.status(200).json({
-        message: 'No contacts to process',
+        message: 'All contacts enriched!',
         cursor: null,
-        runId
+        runId,
+        totalUnenriched: 0
       });
     }
-
-    // Batch fetch contact details
-    const contacts = await hubspot.batchGetContacts(contactIds);
 
     // Process each contact
     for (const contact of contacts) {
@@ -362,8 +361,8 @@ module.exports = async (req, res) => {
       }
     }
 
-    // Save next cursor
-    const nextCursor = memberships.paging?.next?.after || null;
+    // Save next cursor for pagination
+    const nextCursor = searchResult.paging?.next?.after || null;
     await saveCursor(nextCursor);
 
     // Complete the run

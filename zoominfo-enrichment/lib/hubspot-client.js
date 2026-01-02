@@ -218,6 +218,93 @@ class HubSpotClient {
   }
 
   /**
+   * Get unenriched contacts from a list
+   * Fetches list members and filters to only return those where zoominfo_enriched != 'true'
+   * @param {string} listId - The HubSpot list ID
+   * @param {number} limit - Number of unenriched contacts to return
+   * @param {string} after - Pagination cursor for list membership
+   * @returns {Object} { results: Contact[], paging: { next: { after } }, total: number }
+   */
+  async getUnenrichedContacts(listId, limit = 20, after = null) {
+    try {
+      const defaultProperties = [
+        'email',
+        'firstname',
+        'lastname',
+        'phone',
+        'mobilephone',
+        'jobtitle',
+        'company',
+        'city',
+        'state',
+        'zip',
+        'country',
+        'zoominfo_enriched',
+        'lifecyclestage'
+      ];
+
+      const unenrichedContacts = [];
+      let currentCursor = after;
+      let totalChecked = 0;
+      const maxIterations = 50; // Safety limit to avoid infinite loops
+      let iterations = 0;
+
+      // Keep fetching batches until we have enough unenriched contacts
+      while (unenrichedContacts.length < limit && iterations < maxIterations) {
+        iterations++;
+
+        // Fetch a batch of list members (fetch more than needed to filter)
+        const memberships = await this.getListMemberships(listId, 100, currentCursor);
+        const contactIds = memberships.results.map(r => r.recordId || r);
+
+        if (contactIds.length === 0) {
+          // No more contacts in list
+          break;
+        }
+
+        totalChecked += contactIds.length;
+
+        // Batch get contact details
+        const contacts = await this.batchGetContacts(contactIds, defaultProperties);
+
+        // Filter to only unenriched contacts
+        const unenriched = contacts.filter(c =>
+          c.properties?.zoominfo_enriched !== 'true'
+        );
+
+        unenrichedContacts.push(...unenriched);
+
+        // Update cursor for next iteration
+        currentCursor = memberships.paging?.next?.after || null;
+
+        if (!currentCursor) {
+          // No more pages
+          break;
+        }
+
+        // If we found enough, we can stop early
+        if (unenrichedContacts.length >= limit) {
+          break;
+        }
+      }
+
+      // Trim to requested limit
+      const results = unenrichedContacts.slice(0, limit);
+
+      console.log(`Checked ${totalChecked} contacts, found ${unenrichedContacts.length} unenriched, returning ${results.length}`);
+
+      return {
+        results,
+        paging: currentCursor ? { next: { after: currentCursor } } : null,
+        total: unenrichedContacts.length // Note: This is count from what we checked
+      };
+    } catch (error) {
+      console.error('Error getting unenriched contacts:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Get quick estimate of unenriched count using search API
    * Faster than full pagination but may be less accurate
    * @param {string} listId - The HubSpot list ID
