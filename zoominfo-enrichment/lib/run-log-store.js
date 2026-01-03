@@ -387,6 +387,129 @@ class RunLogStore {
       return null;
     }
   }
+
+  /**
+   * Get scheduler settings
+   */
+  async getSchedulerSettings() {
+    const sql = this.getClient();
+    if (!sql) return null;
+
+    try {
+      const result = await sql`
+        SELECT * FROM scheduler_settings WHERE id = 1
+      `;
+
+      if (result.length === 0) return null;
+
+      const settings = result[0];
+      return {
+        enabled: settings.enabled,
+        intervalMinutes: settings.interval_minutes,
+        batchSize: settings.batch_size,
+        lastRunAt: settings.last_run_at,
+        nextRunAt: settings.next_run_at,
+        updatedAt: settings.updated_at
+      };
+    } catch (error) {
+      console.error('Failed to get scheduler settings:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Update scheduler settings
+   * @param {Object} settings - { enabled, intervalMinutes, batchSize }
+   */
+  async updateSchedulerSettings(settings) {
+    const sql = this.getClient();
+    if (!sql) return null;
+
+    try {
+      // Calculate next run time if enabling
+      let nextRunAt = null;
+      if (settings.enabled) {
+        nextRunAt = new Date(Date.now() + (settings.intervalMinutes * 60 * 1000));
+      }
+
+      const result = await sql`
+        UPDATE scheduler_settings
+        SET
+          enabled = ${settings.enabled},
+          interval_minutes = ${settings.intervalMinutes},
+          batch_size = ${settings.batchSize},
+          next_run_at = ${nextRunAt},
+          updated_at = NOW()
+        WHERE id = 1
+        RETURNING *
+      `;
+
+      if (result.length === 0) return null;
+
+      const updated = result[0];
+      return {
+        enabled: updated.enabled,
+        intervalMinutes: updated.interval_minutes,
+        batchSize: updated.batch_size,
+        lastRunAt: updated.last_run_at,
+        nextRunAt: updated.next_run_at,
+        updatedAt: updated.updated_at
+      };
+    } catch (error) {
+      console.error('Failed to update scheduler settings:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Check if scheduler should run now
+   * @returns {Object|null} Settings if should run, null otherwise
+   */
+  async shouldRunNow() {
+    const sql = this.getClient();
+    if (!sql) return null;
+
+    try {
+      const result = await sql`
+        SELECT * FROM scheduler_settings
+        WHERE id = 1
+          AND enabled = true
+          AND (next_run_at IS NULL OR next_run_at <= NOW())
+      `;
+
+      if (result.length === 0) return null;
+
+      const settings = result[0];
+      return {
+        enabled: settings.enabled,
+        intervalMinutes: settings.interval_minutes,
+        batchSize: settings.batch_size
+      };
+    } catch (error) {
+      console.error('Failed to check scheduler:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * Update last run time and calculate next run
+   */
+  async updateLastRun() {
+    const sql = this.getClient();
+    if (!sql) return;
+
+    try {
+      await sql`
+        UPDATE scheduler_settings
+        SET
+          last_run_at = NOW(),
+          next_run_at = NOW() + (interval_minutes || ' minutes')::interval
+        WHERE id = 1
+      `;
+    } catch (error) {
+      console.error('Failed to update last run:', error.message);
+    }
+  }
 }
 
 module.exports = RunLogStore;

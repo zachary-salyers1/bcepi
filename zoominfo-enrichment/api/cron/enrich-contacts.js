@@ -261,18 +261,40 @@ async function processContact(contact, hubspot, zoominfo, gemini, sheets) {
 module.exports = async (req, res) => {
   // Verify cron secret (Vercel sends this header)
   const authHeader = req.headers.authorization;
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    // Also allow manual trigger with webhook secret
-    if (req.headers['x-webhook-secret'] !== process.env.WEBHOOK_SECRET) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+  const isCronTrigger = authHeader === `Bearer ${process.env.CRON_SECRET}`;
+  const isManualTrigger = req.headers['x-webhook-secret'] === process.env.WEBHOOK_SECRET ||
+                          req.headers['x-dashboard-password'] === process.env.DASHBOARD_PASSWORD;
+
+  if (!isCronTrigger && !isManualTrigger) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
   // Determine trigger source
   const triggerSource = req.headers['x-trigger-source'] === 'manual' ? 'manual' : 'cron';
 
+  // Initialize run store early to check scheduler
+  const runStore = new RunLogStore();
+
+  // For cron triggers, check if scheduler is enabled
+  if (triggerSource === 'cron') {
+    const schedulerSettings = await runStore.shouldRunNow();
+    if (!schedulerSettings) {
+      console.log('Scheduler is disabled or not due yet - skipping cron run');
+      return res.status(200).json({
+        success: true,
+        message: 'Scheduler disabled or not due yet',
+        skipped: true
+      });
+    }
+    console.log('Scheduler is enabled and due - proceeding with run');
+  }
+
+  // Get batch size from scheduler settings or environment
+  const schedulerSettings = await runStore.getSchedulerSettings();
+  const effectiveBatchSize = schedulerSettings?.batchSize || BATCH_SIZE;
+
   console.log('=== Starting Contact Enrichment ===');
-  console.log(`Trigger: ${triggerSource}, Batch size: ${BATCH_SIZE}, Delay: ${DELAY_BETWEEN_CONTACTS_MS}ms`);
+  console.log(`Trigger: ${triggerSource}, Batch size: ${effectiveBatchSize}, Delay: ${DELAY_BETWEEN_CONTACTS_MS}ms`);
 
   const startTime = Date.now();
   const results = {
@@ -283,8 +305,7 @@ module.exports = async (req, res) => {
     details: []
   };
 
-  // Initialize run logging
-  const runStore = new RunLogStore();
+  // runStore already initialized above
   let runId = null;
 
   try {
@@ -305,7 +326,7 @@ module.exports = async (req, res) => {
 
     // Fetch ONLY unenriched contacts from HubSpot list
     // This uses search API to find contacts where zoominfo_enriched != 'true'
-    const searchResult = await hubspot.getUnenrichedContacts(HUBSPOT_LIST_ID, BATCH_SIZE, cursor);
+    const searchResult = await hubspot.getUnenrichedContacts(HUBSPOT_LIST_ID, effectiveBatchSize, cursor);
     const contacts = searchResult.results;
 
     console.log(`Found ${contacts.length} unenriched contacts (${searchResult.total} total unenriched in list ${HUBSPOT_LIST_ID})`);
@@ -367,6 +388,11 @@ module.exports = async (req, res) => {
 
     // Complete the run
     await runStore.completeRun(runId, { nextCursor });
+
+    // Update scheduler's last run time (for scheduled runs)
+    if (triggerSource === 'cron') {
+      await runStore.updateLastRun();
+    }
 
     // Update cached stats
     try {

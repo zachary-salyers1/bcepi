@@ -53,3 +53,19 @@ CREATE INDEX IF NOT EXISTS idx_run_contacts_status ON run_contacts(status);
 INSERT INTO stats_cache (id, total_count, enriched_count, unenriched_count)
 VALUES (1, 0, 0, 0)
 ON CONFLICT (id) DO NOTHING;
+
+-- Scheduler settings table
+CREATE TABLE IF NOT EXISTS scheduler_settings (
+  id INTEGER PRIMARY KEY DEFAULT 1,
+  enabled BOOLEAN NOT NULL DEFAULT false,
+  interval_minutes INTEGER NOT NULL DEFAULT 120,
+  batch_size INTEGER NOT NULL DEFAULT 50,
+  last_run_at TIMESTAMP WITH TIME ZONE,
+  next_run_at TIMESTAMP WITH TIME ZONE,
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+-- Insert default scheduler settings
+INSERT INTO scheduler_settings (id, enabled, interval_minutes, batch_size)
+VALUES (1, false, 120, 50)
+ON CONFLICT (id) DO NOTHING;
