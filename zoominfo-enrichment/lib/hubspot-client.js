@@ -186,6 +186,7 @@ class HubSpotClient {
       // Get total count by paginating through list
       let totalCount = 0;
       let enrichedCount = 0;
+      let noEmailCount = 0;
       let after = null;
 
       // Paginate through list to count
@@ -202,6 +203,9 @@ class HubSpotClient {
         enrichedCount += contacts.filter(c =>
           c.properties?.zoominfo_enriched === 'true'
         ).length;
+        noEmailCount += contacts.filter(c =>
+          !c.properties?.email || c.properties.email.trim() === ''
+        ).length;
 
         after = memberships.paging?.next?.after || null;
       } while (after);
@@ -209,7 +213,9 @@ class HubSpotClient {
       return {
         totalCount,
         enrichedCount,
-        unenrichedCount: totalCount - enrichedCount
+        unenrichedCount: totalCount - enrichedCount,
+        noEmailCount,
+        enrichableCount: totalCount - enrichedCount - noEmailCount
       };
     } catch (error) {
       console.error('Error getting enrichment stats:', error.response?.data || error.message);
@@ -267,9 +273,11 @@ class HubSpotClient {
         // Batch get contact details
         const contacts = await this.batchGetContacts(contactIds, defaultProperties);
 
-        // Filter to only unenriched contacts
+        // Filter to only unenriched contacts that have an email address
+        // (contacts without email can't be enriched via ZoomInfo)
         const unenriched = contacts.filter(c =>
-          c.properties?.zoominfo_enriched !== 'true'
+          c.properties?.zoominfo_enriched !== 'true' &&
+          c.properties?.email && c.properties.email.trim() !== ''
         );
 
         unenrichedContacts.push(...unenriched);
