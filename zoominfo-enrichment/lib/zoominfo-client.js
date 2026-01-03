@@ -204,18 +204,22 @@ class ZoomInfoClient {
           type: 'ContactEnrich',
           attributes: {
             matchPersonInput: [matchInput],
-            // Only request fields available in your ZoomInfo plan
-            // Add more fields here if you have access to them
+            // Request all available fields including phone data and external URLs
+            // Note: linkedInUrl field doesn't exist - LinkedIn comes from externalUrls array
             outputFields: [
               'id',
               'firstName',
               'lastName',
               'email',
+              'phone',
+              'mobilePhone',
               'companyName',
               'jobTitle',
               'city',
               'state',
-              'country'
+              'zipCode',
+              'country',
+              'externalUrls'
             ]
           }
         }
@@ -301,17 +305,22 @@ class ZoomInfoClient {
           type: 'ContactEnrich',
           attributes: {
             matchPersonInput,
-            // Only request fields available in your ZoomInfo plan
+            // Request all available fields including phone data and external URLs
+            // Note: linkedInUrl field doesn't exist - LinkedIn comes from externalUrls array
             outputFields: [
               'id',
               'firstName',
               'lastName',
               'email',
+              'phone',
+              'mobilePhone',
               'companyName',
               'jobTitle',
               'city',
               'state',
-              'country'
+              'zipCode',
+              'country',
+              'externalUrls'
             ]
           }
         }

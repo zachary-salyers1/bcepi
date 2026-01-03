@@ -192,9 +192,8 @@ async function processContact(contact, hubspot, zoominfo, gemini, sheets) {
 
     const enrichedData = enrichResult.contact || {};
 
-    // Extract LinkedIn URL
-    const linkedInUrl = extractLinkedInUrl(enrichedData.externalUrls) ||
-                        enrichedData.linkedInUrl;
+    // Extract LinkedIn URL from externalUrls array (ZoomInfo's format)
+    const linkedInUrl = extractLinkedInUrl(enrichedData.externalUrls);
 
     // Validate via Gemini if LinkedIn URL exists
     let validationStatus = 'Skipped - No LinkedIn';
