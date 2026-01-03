@@ -194,6 +194,20 @@
       background: #475569;
     }
 
+    .btn-danger {
+      background: #dc2626;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #b91c1c;
+    }
+
+    .btn-danger:disabled {
+      background: #475569;
+      cursor: not-allowed;
+    }
+
     /* Runs Table */
     .runs-section {
       background: #1e293b;
@@ -567,6 +581,9 @@
       <button id="runBatchBtn" class="btn btn-primary" onclick="triggerBatch()">
         <span>&#9654;</span> Run Batch Now
       </button>
+      <button id="stopRunBtn" class="btn btn-danger" onclick="stopRun()" style="display: none;">
+        <span>&#9632;</span> Stop Run
+      </button>
       <button class="btn btn-secondary" onclick="refreshStats()">
         <span>&#8635;</span> Refresh Stats
       </button>
@@ -671,9 +688,11 @@
           <div class="cache-info">Last updated: ${new Date(data.cachedAt).toLocaleTimeString()}</div>
         `;
 
-        // Show current run indicator
+        // Show current run indicator and stop button
         if (data.currentRun) {
           document.getElementById('currentRunBadge').style.display = 'inline';
+          document.getElementById('stopRunBtn').style.display = 'inline-flex';
+          document.getElementById('stopRunBtn').dataset.runId = data.currentRun.id;
           // Poll more frequently during active run
           clearInterval(autoRefreshInterval);
           autoRefreshInterval = setInterval(() => {
@@ -682,6 +701,7 @@
           }, 5000);
         } else {
           document.getElementById('currentRunBadge').style.display = 'none';
+          document.getElementById('stopRunBtn').style.display = 'none';
           // Reset to normal polling
           clearInterval(autoRefreshInterval);
           autoRefreshInterval = setInterval(() => {
@@ -859,6 +879,43 @@
       const div = document.createElement('div');
       div.textContent = str;
       return div.innerHTML;
+    }
+
+    async function stopRun() {
+      const btn = document.getElementById('stopRunBtn');
+      const runId = btn.dataset.runId;
+
+      if (!confirm('Are you sure you want to stop the current run?')) {
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner" style="width: 1rem; height: 1rem;"></span> Stopping...';
+
+      try {
+        const res = await fetch('/api/dashboard/stop-run', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Dashboard-Password': password
+          },
+          body: JSON.stringify({ runId })
+        });
+        const data = await res.json();
+
+        if (!data.success) {
+          alert('Error: ' + (data.error || 'Failed to stop run'));
+        } else {
+          // Refresh to show updated status
+          await loadRuns();
+          await refreshStats();
+        }
+      } catch (error) {
+        alert('Error stopping run: ' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span>&#9632;</span> Stop Run';
+      }
     }
 
     // Scheduler functions
