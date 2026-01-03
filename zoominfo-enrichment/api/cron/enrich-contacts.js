@@ -337,6 +337,7 @@ module.exports = async (req, res) => {
         email: props.email || 'unknown',
         status: result.success ? 'enriched' : (result.skipped ? 'skipped' : 'error'),
         reason: result.reason || null,
+        errorMessage: result.message || null,
         fieldsUpdated: result.fields || [],
         validation: result.validation || null
       });

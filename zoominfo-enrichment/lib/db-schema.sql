@@ -22,10 +22,15 @@ CREATE TABLE IF NOT EXISTS run_contacts (
   email VARCHAR(255),
   status VARCHAR(20) NOT NULL,
   reason VARCHAR(100),
+  error_message TEXT,
   fields_updated JSONB DEFAULT '[]'::jsonb,
   validation JSONB,
   processed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
+
+-- Migration: Add error_message column if it doesn't exist
+-- Run this if you already have the table created:
+-- ALTER TABLE run_contacts ADD COLUMN IF NOT EXISTS error_message TEXT;
 
 -- Stats cache table
 CREATE TABLE IF NOT EXISTS stats_cache (

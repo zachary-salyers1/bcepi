@@ -100,13 +100,14 @@ class RunLogStore {
     try {
       // Insert contact record
       await sql`
-        INSERT INTO run_contacts (run_id, contact_id, email, status, reason, fields_updated, validation)
+        INSERT INTO run_contacts (run_id, contact_id, email, status, reason, error_message, fields_updated, validation)
         VALUES (
           ${runId},
           ${contact.id},
           ${contact.email || 'unknown'},
           ${contact.status},
           ${contact.reason || null},
+          ${contact.errorMessage || null},
           ${JSON.stringify(contact.fieldsUpdated || [])},
           ${contact.validation ? JSON.stringify(contact.validation) : null}
         )
@@ -251,6 +252,7 @@ class RunLogStore {
           email: c.email,
           status: c.status,
           reason: c.reason,
+          errorMessage: c.error_message,
           fieldsUpdated: c.fields_updated,
           validation: c.validation,
           timestamp: c.processed_at

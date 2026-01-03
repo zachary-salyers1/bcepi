@@ -366,6 +366,35 @@
       color: #64748b;
       margin-top: 0.5rem;
     }
+
+    /* Error message for failed runs */
+    .run-error-message {
+      margin-top: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      background: rgba(239, 68, 68, 0.15);
+      border-radius: 0.25rem;
+      color: #fca5a5;
+      font-size: 0.8rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+
+    .error-icon {
+      color: #ef4444;
+      flex-shrink: 0;
+    }
+
+    /* Contact error reason */
+    .contact-error-reason {
+      color: #fca5a5;
+      font-size: 0.75rem;
+      margin-left: 1rem;
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -561,6 +590,11 @@
                 ${run.summary.errors > 0 ? `<span class="run-stat errors">${run.summary.errors} errors</span>` : ''}
               </div>
             </div>
+            ${run.status === 'failed' && run.error ? `
+              <div class="run-error-message">
+                <span class="error-icon">&#9888;</span> ${escapeHtml(run.error)}
+              </div>
+            ` : ''}
           </div>
           <div id="details-${run.id}" class="run-details"></div>
         `).join('');
@@ -594,12 +628,20 @@
 
           const run = data.run;
           detailsEl.innerHTML = `
+            ${run.error ? `
+              <div class="run-error-message" style="margin-bottom: 1rem;">
+                <span class="error-icon">&#9888;</span>
+                <div><strong>Run Error:</strong> ${escapeHtml(run.error)}</div>
+              </div>
+            ` : ''}
             <div class="contact-list">
+              ${run.contacts.length === 0 ? '<div style="color: #94a3b8; padding: 0.5rem 0;">No contacts processed</div>' : ''}
               ${run.contacts.map(c => `
                 <div class="contact-item">
                   <div class="contact-status ${c.status}">${getStatusIcon(c.status)}</div>
-                  <div class="contact-email">${c.email}</div>
+                  <div class="contact-email">${escapeHtml(c.email)}</div>
                   ${c.reason ? `<div class="contact-reason">${formatReason(c.reason)}</div>` : ''}
+                  ${c.status === 'error' ? `<div class="contact-error-reason" title="${escapeHtml(c.errorMessage || c.reason || 'Unknown error')}">${escapeHtml(c.errorMessage || c.reason || 'Error')}</div>` : ''}
                   ${c.fieldsUpdated?.length > 0 ? `<div class="contact-fields">+${c.fieldsUpdated.length} fields</div>` : ''}
                 </div>
               `).join('')}
@@ -675,6 +717,13 @@
         'zoominfo_limit_exceeded': 'Limit exceeded'
       };
       return map[reason] || reason;
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
     }
   </script>
 </body>
