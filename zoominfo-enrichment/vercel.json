@@ -1,5 +1,10 @@
 {
     "version": 2,
+    "functions": {
+        "api/cron/enrich-contacts.js": {
+            "maxDuration": 300
+        }
+    },
     "crons": [
         {
             "path": "/api/cron/enrich-contacts",
