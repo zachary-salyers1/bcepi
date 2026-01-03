@@ -287,6 +287,11 @@ module.exports = async (req, res) => {
       });
     }
     console.log('Scheduler is enabled and due - proceeding with run');
+
+    // Update last_run_at and next_run_at immediately at run START
+    // This ensures next_run_at is calculated from when the run began,
+    // not when it finished (which could be several minutes later)
+    await runStore.updateLastRun();
   }
 
   // Get batch size from scheduler settings or environment
@@ -389,10 +394,8 @@ module.exports = async (req, res) => {
     // Complete the run
     await runStore.completeRun(runId, { nextCursor });
 
-    // Update scheduler's last run time (for scheduled runs)
-    if (triggerSource === 'cron') {
-      await runStore.updateLastRun();
-    }
+    // Note: updateLastRun() is called at the START of cron runs now,
+    // so next_run_at is calculated from run start time, not end time
 
     // Update cached stats
     try {
