@@ -29,15 +29,6 @@ const GoogleSheetsClient = require('../../lib/sheets-client');
 const GeminiClient = require('../../lib/gemini-client');
 const RunLogStore = require('../../lib/run-log-store');
 
-// Vercel KV for pagination state (or use env var fallback)
-let kv;
-try {
-  kv = require('@vercel/kv');
-} catch (e) {
-  kv = null;
-}
-
-const CURSOR_KEY = 'customer-enrichment-cursor';
 const BATCH_SIZE = parseInt(process.env.ENRICHMENT_BATCH_SIZE || '10');
 const DELAY_BETWEEN_CONTACTS_MS = parseInt(process.env.ENRICHMENT_DELAY_MS || '2000');
 const HUBSPOT_LIST_ID = process.env.HUBSPOT_LIST_ID || '151';
@@ -46,36 +37,6 @@ const HUBSPOT_LIST_ID = process.env.HUBSPOT_LIST_ID || '151';
  * Sleep helper
  */
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-/**
- * Get pagination cursor from storage
- */
-async function getCursor() {
-  if (kv?.get) {
-    try {
-      return await kv.get(CURSOR_KEY);
-    } catch (e) {
-      console.log('KV not available, using env fallback');
-    }
-  }
-  return process.env.ENRICHMENT_CURSOR || null;
-}
-
-/**
- * Save pagination cursor to storage
- */
-async function saveCursor(cursor) {
-  if (kv?.set) {
-    try {
-      await kv.set(CURSOR_KEY, cursor);
-      return;
-    } catch (e) {
-      console.log('KV not available for saving cursor');
-    }
-  }
-  // If no KV, just log it - user can set ENRICHMENT_CURSOR env var manually
-  console.log('Next cursor (save to ENRICHMENT_CURSOR):', cursor);
-}
 
 /**
  * Extract LinkedIn URL from ZoomInfo external URLs
@@ -325,20 +286,17 @@ module.exports = async (req, res) => {
     const sheets = new GoogleSheetsClient();
     const gemini = new GeminiClient();
 
-    // Get pagination cursor for unenriched contacts search
-    const cursor = await getCursor();
-    console.log(`Starting from cursor: ${cursor || 'beginning'}`);
-
     // Fetch ONLY unenriched contacts from HubSpot list
-    // This uses search API to find contacts where zoominfo_enriched != 'true'
-    const searchResult = await hubspot.getUnenrichedContacts(HUBSPOT_LIST_ID, effectiveBatchSize, cursor);
+    // Always start from beginning - we filter for unenriched as we scan
+    // The cursor is no longer used since getUnenrichedContacts scans the list
+    // and filters to find contacts that haven't been enriched yet
+    const searchResult = await hubspot.getUnenrichedContacts(HUBSPOT_LIST_ID, effectiveBatchSize, null);
     const contacts = searchResult.results;
 
-    console.log(`Found ${contacts.length} unenriched contacts (${searchResult.total} total unenriched in list ${HUBSPOT_LIST_ID})`);
+    console.log(`Found ${contacts.length} unenriched contacts to process`);
 
     if (contacts.length === 0) {
       console.log('No unenriched contacts remaining - enrichment complete!');
-      await saveCursor(null);
       await runStore.completeRun(runId, { nextCursor: null });
       return res.status(200).json({
         message: 'All contacts enriched!',
@@ -387,12 +345,8 @@ module.exports = async (req, res) => {
       }
     }
 
-    // Save next cursor for pagination
-    const nextCursor = searchResult.paging?.next?.after || null;
-    await saveCursor(nextCursor);
-
     // Complete the run
-    await runStore.completeRun(runId, { nextCursor });
+    await runStore.completeRun(runId, {});
 
     // Note: updateLastRun() is called at the START of cron runs now,
     // so next_run_at is calculated from run start time, not end time
