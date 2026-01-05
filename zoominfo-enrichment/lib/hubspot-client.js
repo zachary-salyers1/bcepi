@@ -252,7 +252,9 @@ class HubSpotClient {
       const unenrichedContacts = [];
       let currentCursor = after;
       let totalChecked = 0;
-      const maxIterations = 50; // Safety limit to avoid infinite loops
+      // With 7000+ contacts, we need to be able to scan the entire list
+      // 100 iterations × 100 contacts = 10,000 max contacts scanned
+      const maxIterations = 100;
       let iterations = 0;
 
       // Keep fetching batches until we have enough unenriched contacts
