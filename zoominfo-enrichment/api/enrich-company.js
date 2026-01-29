@@ -108,13 +108,35 @@ module.exports = async (req, res) => {
         // Helper function to extract codes from arrays
         const extractCodes = (codesArray) => {
             if (!codesArray || !Array.isArray(codesArray)) return null;
-            return codesArray.map(c => c.code || c).join(', ');
+            return codesArray
+                .map(c => {
+                    // Handle both object format {code: "123"} and string format
+                    if (typeof c === 'object' && c !== null) {
+                        return c.code || c.value || JSON.stringify(c);
+                    }
+                    return String(c);
+                })
+                .filter(Boolean)
+                .join(', ');
         };
 
         const extractDescriptions = (codesArray) => {
             if (!codesArray || !Array.isArray(codesArray)) return null;
-            return codesArray.map(c => c.description || '').filter(Boolean).join('; ');
+            return codesArray
+                .map(c => {
+                    // Handle both object format {description: "..."} and string format
+                    if (typeof c === 'object' && c !== null) {
+                        return c.description || c.name || '';
+                    }
+                    return '';
+                })
+                .filter(Boolean)
+                .join('; ');
         };
+
+        // Convert revenue from thousands to actual dollars
+        // ZoomInfo returns revenue in thousands (e.g., 66199 = $66,199,000)
+        const actualRevenue = companyData.revenue ? companyData.revenue * 1000 : null;
 
         // Map to HubSpot properties
         const hubspotUpdates = {
@@ -123,7 +145,7 @@ module.exports = async (req, res) => {
             domain: companyData.website,
             phone: companyData.phone,
             numberofemployees: companyData.employeeCount,
-            annualrevenue: companyData.revenue,
+            annualrevenue: actualRevenue,
             city: companyData.city,
             state: companyData.state,
             zip: companyData.zipCode,
@@ -145,7 +167,9 @@ module.exports = async (req, res) => {
             zoominfo_description: companyData.description,
             zoominfo_employee_range: companyData.employeeRange,
             zoominfo_revenue_range: companyData.revenueRange,
-            zoominfo_industry: companyData.primaryIndustry
+            zoominfo_industry: Array.isArray(companyData.primaryIndustry)
+                ? companyData.primaryIndustry.join(', ')
+                : companyData.primaryIndustry
         };
 
         // Remove undefined/null values to avoid overwriting existing data with empty values
@@ -155,17 +179,31 @@ module.exports = async (req, res) => {
             }
         });
 
-        // Update HubSpot if we have a company ID
-        if (hubspotCompanyId) {
-            await hubspot.updateCompany(hubspotCompanyId, hubspotUpdates);
-            console.log(`Updated HubSpot company ${hubspotCompanyId} with ${Object.keys(hubspotUpdates).length} fields`);
+        // Update HubSpot - lookup by domain if no ID provided
+        let finalHubspotId = hubspotCompanyId;
+
+        if (!finalHubspotId && domain) {
+            console.log(`No HubSpot ID provided, looking up by domain: ${domain}`);
+            const hsCompany = await hubspot.getCompanyByDomain(domain);
+            if (hsCompany) {
+                finalHubspotId = hsCompany.id;
+                console.log(`Found HubSpot company by domain: ${finalHubspotId}`);
+            }
+        }
+
+        if (finalHubspotId) {
+            await hubspot.updateCompany(finalHubspotId, hubspotUpdates);
+            console.log(`Updated HubSpot company ${finalHubspotId} with ${Object.keys(hubspotUpdates).length} fields`);
+        } else {
+            console.log('No HubSpot company ID - skipping HubSpot update');
         }
 
         // Format response for Make.com / API consumers
         const enrichedCompany = {
-            hubspotCompanyId,
+            hubspotCompanyId: finalHubspotId,
             success: true,
             zoomInfoId: companyId,
+            hubspotUpdated: !!finalHubspotId,
             data: {
                 name: companyData.name,
                 website: companyData.website,
@@ -173,7 +211,7 @@ module.exports = async (req, res) => {
                 fax: companyData.fax,
                 employees: companyData.employeeCount,
                 employeeRange: companyData.employeeRange,
-                revenue: companyData.revenue,
+                revenue: actualRevenue,
                 revenueRange: companyData.revenueRange,
                 ticker: companyData.ticker,
                 description: companyData.description,

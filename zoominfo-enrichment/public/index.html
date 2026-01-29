@@ -944,15 +944,25 @@
           statusDiv.style.color = '#dcfce7';
 
           const company = data.data;
+
+          // Format revenue in millions for readability
+          const formatRevenue = (revenue) => {
+            if (!revenue) return null;
+            const millions = revenue / 1000000;
+            return millions >= 1
+              ? `$${millions.toFixed(1)}M`
+              : `$${(revenue / 1000).toFixed(0)}K`;
+          };
+
           statusDiv.innerHTML = `
             ✅ <strong>Successfully enriched!</strong><br>
             <div style="margin-top: 1rem; padding: 1rem; background: rgba(0,0,0,0.2); border-radius: 0.375rem; font-size: 0.75rem;">
               <div style="margin-bottom: 0.5rem;"><strong>${company.name || domain}</strong></div>
               ${company.phone ? `<div>📞 ${company.phone}</div>` : ''}
               ${company.employees ? `<div>👥 ${company.employees.toLocaleString()} employees</div>` : ''}
-              ${company.revenue ? `<div>💰 $${company.revenue.toLocaleString()} revenue</div>` : ''}
+              ${company.revenue ? `<div>💰 ${formatRevenue(company.revenue)} revenue</div>` : ''}
               ${company.address?.city ? `<div>📍 ${company.address.city}, ${company.address.state || ''}</div>` : ''}
-              ${hubspotId ? `<div style="margin-top: 0.5rem; color: #a7f3d0;">✓ HubSpot record updated</div>` : ''}
+              ${data.hubspotUpdated ? `<div style="margin-top: 0.5rem; color: #a7f3d0;">✓ HubSpot record updated (ID: ${data.hubspotCompanyId})</div>` : '<div style="margin-top: 0.5rem; color: #fbbf24;">⚠ Not found in HubSpot (data returned only)</div>'}
             </div>
           `;
 
