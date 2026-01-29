@@ -537,6 +537,51 @@
       </div>
     </div>
 
+    <!-- Company Enrichment Card -->
+    <div class="stats-card">
+      <div class="stats-header">
+        <span class="stats-title">🏢 Enrich Company</span>
+      </div>
+      <div style="padding-top: 1rem;">
+        <div class="control-group" style="margin-bottom: 1rem;">
+          <label style="display: block; margin-bottom: 0.5rem; font-size: 0.875rem; color: #94a3b8;">
+            Company Website/Domain
+          </label>
+          <input
+            type="text"
+            id="companyDomain"
+            placeholder="e.g., salesforce.com or kccmanufacturing.com"
+            style="width: 100%; padding: 0.75rem; border: 1px solid #334155; border-radius: 0.375rem; background: #0f172a; color: #e2e8f0; font-size: 0.875rem;"
+          />
+        </div>
+
+        <div class="control-group" style="margin-bottom: 1rem;">
+          <label style="display: block; margin-bottom: 0.5rem; font-size: 0.875rem; color: #94a3b8;">
+            HubSpot Company ID <span style="color: #64748b; font-size: 0.75rem;">(optional)</span>
+          </label>
+          <input
+            type="text"
+            id="companyHubspotId"
+            placeholder="Leave blank to lookup by domain"
+            style="width: 100%; padding: 0.75rem; border: 1px solid #334155; border-radius: 0.375rem; background: #0f172a; color: #e2e8f0; font-size: 0.875rem;"
+          />
+        </div>
+
+        <button
+          id="enrichCompanyBtn"
+          class="btn btn-primary"
+          onclick="enrichCompany()"
+          style="width: 100%; margin-bottom: 1rem;"
+        >
+          <span>🔍</span> Enrich Company
+        </button>
+
+        <div id="companyEnrichStatus" style="display: none; padding: 1rem; border-radius: 0.375rem; font-size: 0.875rem;">
+          <!-- Status will be shown here -->
+        </div>
+      </div>
+    </div>
+
     <!-- Scheduler Card -->
     <div class="stats-card" id="schedulerCard">
       <div class="stats-header">
@@ -837,6 +882,96 @@
       } finally {
         btn.disabled = false;
         btn.innerHTML = '<span>&#9654;</span> Run Batch Now';
+      }
+    }
+
+    async function enrichCompany() {
+      const domain = document.getElementById('companyDomain').value.trim();
+      const hubspotId = document.getElementById('companyHubspotId').value.trim();
+      const btn = document.getElementById('enrichCompanyBtn');
+      const statusDiv = document.getElementById('companyEnrichStatus');
+
+      if (!domain) {
+        alert('Please enter a company domain');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner" style="width: 1rem; height: 1rem;"></span> Enriching...';
+      statusDiv.style.display = 'block';
+      statusDiv.style.background = '#1e40af';
+      statusDiv.style.color = '#dbeafe';
+      statusDiv.innerHTML = '🔄 Searching ZoomInfo for company...';
+
+      try {
+        const res = await fetch('/api/enrich-company', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-webhook-secret': password
+          },
+          body: JSON.stringify({
+            domain: domain,
+            hubspotCompanyId: hubspotId || undefined
+          })
+        });
+
+        const data = await res.json();
+
+        if (res.status === 404) {
+          statusDiv.style.background = '#f59e0b';
+          statusDiv.style.color = '#fef3c7';
+          statusDiv.innerHTML = `
+            ⚠️ <strong>Company not found in ZoomInfo</strong><br>
+            <span style="font-size: 0.75rem; margin-top: 0.5rem; display: block;">
+              Domain: ${domain}
+            </span>
+          `;
+        } else if (res.status === 402) {
+          statusDiv.style.background = '#dc2626';
+          statusDiv.style.color = '#fee2e2';
+          statusDiv.innerHTML = `
+            ❌ <strong>ZoomInfo credit limit exceeded</strong><br>
+            <span style="font-size: 0.75rem; margin-top: 0.5rem; display: block;">
+              Contact your ZoomInfo Account Manager
+            </span>
+          `;
+        } else if (!data.success) {
+          throw new Error(data.error || data.message);
+        } else {
+          // Success!
+          statusDiv.style.background = '#16a34a';
+          statusDiv.style.color = '#dcfce7';
+
+          const company = data.data;
+          statusDiv.innerHTML = `
+            ✅ <strong>Successfully enriched!</strong><br>
+            <div style="margin-top: 1rem; padding: 1rem; background: rgba(0,0,0,0.2); border-radius: 0.375rem; font-size: 0.75rem;">
+              <div style="margin-bottom: 0.5rem;"><strong>${company.name || domain}</strong></div>
+              ${company.phone ? `<div>📞 ${company.phone}</div>` : ''}
+              ${company.employees ? `<div>👥 ${company.employees.toLocaleString()} employees</div>` : ''}
+              ${company.revenue ? `<div>💰 $${company.revenue.toLocaleString()} revenue</div>` : ''}
+              ${company.address?.city ? `<div>📍 ${company.address.city}, ${company.address.state || ''}</div>` : ''}
+              ${hubspotId ? `<div style="margin-top: 0.5rem; color: #a7f3d0;">✓ HubSpot record updated</div>` : ''}
+            </div>
+          `;
+
+          // Clear inputs on success
+          document.getElementById('companyDomain').value = '';
+          document.getElementById('companyHubspotId').value = '';
+        }
+      } catch (error) {
+        statusDiv.style.background = '#dc2626';
+        statusDiv.style.color = '#fee2e2';
+        statusDiv.innerHTML = `
+          ❌ <strong>Enrichment failed</strong><br>
+          <span style="font-size: 0.75rem; margin-top: 0.5rem; display: block;">
+            ${error.message}
+          </span>
+        `;
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span>🔍</span> Enrich Company';
       }
     }
 

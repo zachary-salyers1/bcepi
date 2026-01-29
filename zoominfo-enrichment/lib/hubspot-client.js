@@ -176,6 +176,122 @@ class HubSpotClient {
   }
 
   /**
+   * Get a company by ID
+   * @param {string} companyId - The HubSpot company ID
+   * @param {Array} properties - Additional properties to fetch
+   * @returns {Object} Company data
+   */
+  async getCompany(companyId, properties = []) {
+    try {
+      const defaultProperties = [
+        'name',
+        'domain',
+        'phone',
+        'numberofemployees',
+        'annualrevenue',
+        'industry',
+        'city',
+        'state',
+        'zip',
+        'country',
+        'address',
+        'zoominfo_enriched',
+        'zoominfo_company_id',
+        'zoominfo_naics_code'
+      ];
+
+      const allProperties = [...new Set([...defaultProperties, ...properties])];
+      const propsParam = allProperties.join(',');
+
+      const response = await axios.get(
+        `${this.baseURL}/crm/v3/objects/companies/${companyId}?properties=${propsParam}`,
+        { headers: this.getHeaders() }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching company:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Update a company
+   * @param {string} companyId - The HubSpot company ID
+   * @param {Object} properties - Properties to update
+   * @returns {Object} Updated company data
+   */
+  async updateCompany(companyId, properties) {
+    try {
+      const response = await axios.patch(
+        `${this.baseURL}/crm/v3/objects/companies/${companyId}`,
+        { properties },
+        { headers: this.getHeaders() }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error('Error updating company:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Batch update multiple companies
+   * @param {Array} companies - Array of { id, properties } objects
+   * @returns {Object} Batch update results
+   */
+  async batchUpdateCompanies(companies) {
+    try {
+      const response = await axios.post(
+        `${this.baseURL}/crm/v3/objects/companies/batch/update`,
+        {
+          inputs: companies.map(c => ({
+            id: c.id,
+            properties: c.properties
+          }))
+        },
+        { headers: this.getHeaders() }
+      );
+
+      return response.data;
+    } catch (error) {
+      console.error('Error batch updating companies:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get a company by domain using search
+   * @param {string} domain - The company domain
+   * @returns {Object|null} Company data or null if not found
+   */
+  async getCompanyByDomain(domain) {
+    try {
+      const response = await axios.post(
+        `${this.baseURL}/crm/v3/objects/companies/search`,
+        {
+          filterGroups: [{
+            filters: [{
+              propertyName: 'domain',
+              operator: 'EQ',
+              value: domain
+            }]
+          }],
+          properties: ['name', 'domain', 'zoominfo_enriched'],
+          limit: 1
+        },
+        { headers: this.getHeaders() }
+      );
+
+      return response.data.results?.[0] || null;
+    } catch (error) {
+      console.error('Error searching company by domain:', error.response?.data || error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Get enrichment stats for a list
    * Counts total contacts and unenriched contacts (where zoominfo_enriched != 'true')
    * @param {string} listId - The HubSpot list ID

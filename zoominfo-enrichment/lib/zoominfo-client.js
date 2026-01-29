@@ -175,6 +175,119 @@ class ZoomInfoClient {
   }
 
   /**
+   * Enrich a company using the correct matchCompanyInput format
+   * @param {Object} params - Enrichment parameters
+   * @param {string} [params.companyId] - ZoomInfo company ID from search
+   * @param {string} [params.companyName] - Company name for matching
+   * @param {string} [params.website] - Company website/domain
+   * @returns {Object} Enriched company data
+   */
+  async enrichCompany(params) {
+    try {
+      // Ensure we have a valid token
+      if (!this.token) {
+        await this.authenticate();
+      }
+
+      // Build the matchCompanyInput object
+      const matchInput = {};
+      if (params.companyId) matchInput.companyId = parseInt(params.companyId);
+      if (params.companyName) matchInput.companyName = params.companyName;
+      if (params.website) matchInput.companyWebsite = params.website;
+
+      const requestBody = {
+        data: {
+          type: 'CompanyEnrich',
+          attributes: {
+            matchCompanyInput: [matchInput],
+            outputFields: [
+              'id',
+              'name',
+              'website',
+              'phone',
+              'fax',
+              'revenue',
+              'revenueRange',
+              'employeeCount',
+              'employeeRange',
+              'ticker',
+              'sicCodes',
+              'naicsCodes',
+              'industryCodes',
+              'primaryIndustry',
+              'primaryIndustryCode',
+              'street',
+              'city',
+              'state',
+              'zipCode',
+              'country',
+              'parentId',
+              'parentName',
+              'ultimateParentId',
+              'ultimateParentName',
+              'ultimateParentEmployees',
+              'ultimateParentRevenue',
+              'foundedYear',
+              'description',
+              'logo',
+              'socialMediaUrls',
+              'domainList',
+              'companyStatus',
+              'type',
+              'numberOfContactsInZoomInfo'
+            ]
+          }
+        }
+      };
+
+      console.log('Enriching company with:', JSON.stringify(matchInput));
+
+      const response = await axios.post(
+        `${this.baseURL}/gtm/data/v1/companies/enrich`,
+        requestBody,
+        {
+          headers: {
+            'Authorization': `Bearer ${this.token}`,
+            'Accept': 'application/vnd.api+json',
+            'Content-Type': 'application/vnd.api+json'
+          }
+        }
+      );
+
+      // Parse the response
+      const result = {
+        success: true,
+        data: response.data
+      };
+
+      // Check for limit exceeded
+      if (response.data?.data?.[0]?.meta?.matchStatus === 'LIMIT_EXCEEDED') {
+        result.success = false;
+        result.limitExceeded = true;
+        result.message = 'ZoomInfo enrichment credit limit exceeded. Contact your Account Manager.';
+      } else if (response.data?.data?.[0]?.attributes) {
+        result.company = response.data.data[0].attributes;
+      }
+
+      return result;
+    } catch (error) {
+      if (error.response?.status === 401) {
+        console.log('Token expired, refreshing...');
+        this.token = null;
+        await this.authenticate();
+        return this.enrichCompany(params);
+      }
+      console.error('Company enrich error:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        message: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Enrich a contact using the correct matchPersonInput format
    * @param {Object} params - Enrichment parameters
    * @param {string} [params.personId] - ZoomInfo person ID
