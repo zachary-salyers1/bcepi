@@ -6,7 +6,7 @@ module.exports = async (req, res) => {
     // Enable CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Webhook-Secret, X-Dashboard-Password');
 
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
@@ -17,9 +17,14 @@ module.exports = async (req, res) => {
     }
 
     try {
-        // Verify webhook secret
+        // Verify authentication (accept either webhook secret OR dashboard password)
         const webhookSecret = req.headers['x-webhook-secret'];
-        if (webhookSecret !== process.env.WEBHOOK_SECRET) {
+        const dashboardPassword = req.headers['x-dashboard-password'];
+
+        const isWebhookAuth = webhookSecret === process.env.WEBHOOK_SECRET;
+        const isDashboardAuth = dashboardPassword === process.env.DASHBOARD_PASSWORD;
+
+        if (!isWebhookAuth && !isDashboardAuth) {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
