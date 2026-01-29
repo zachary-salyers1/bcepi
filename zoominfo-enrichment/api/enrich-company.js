@@ -139,8 +139,8 @@ module.exports = async (req, res) => {
         const actualRevenue = companyData.revenue ? companyData.revenue * 1000 : null;
 
         // Map to HubSpot properties
+        // Start with standard properties (always safe)
         const hubspotUpdates = {
-            // Standard properties
             name: companyData.name,
             domain: companyData.website,
             phone: companyData.phone,
@@ -150,9 +150,12 @@ module.exports = async (req, res) => {
             state: companyData.state,
             zip: companyData.zipCode,
             country: companyData.country,
-            address: companyData.street,
+            address: companyData.street
+        };
 
-            // Custom properties
+        // Add custom properties (these need to be created in HubSpot first)
+        // If they don't exist, the update will fail, so we'll try without them
+        const customProperties = {
             zoominfo_enriched: 'true',
             zoominfo_enriched_date: new Date().toISOString().split('T')[0],
             zoominfo_company_id: String(companyId),
@@ -171,6 +174,9 @@ module.exports = async (req, res) => {
                 ? companyData.primaryIndustry.join(', ')
                 : companyData.primaryIndustry
         };
+
+        // Try to add custom properties, but don't fail if they don't exist
+        Object.assign(hubspotUpdates, customProperties);
 
         // Remove undefined/null values to avoid overwriting existing data with empty values
         Object.keys(hubspotUpdates).forEach(key => {
@@ -192,8 +198,43 @@ module.exports = async (req, res) => {
         }
 
         if (finalHubspotId) {
-            await hubspot.updateCompany(finalHubspotId, hubspotUpdates);
-            console.log(`Updated HubSpot company ${finalHubspotId} with ${Object.keys(hubspotUpdates).length} fields`);
+            try {
+                // Try to update with all properties (including custom)
+                await hubspot.updateCompany(finalHubspotId, hubspotUpdates);
+                console.log(`Updated HubSpot company ${finalHubspotId} with ${Object.keys(hubspotUpdates).length} fields`);
+            } catch (error) {
+                // If it fails due to missing custom properties, retry with just standard properties
+                if (error.response?.status === 400 && error.response?.data?.message?.includes('does not exist')) {
+                    console.log('Custom properties not found, updating with standard properties only');
+
+                    // Retry with just standard properties
+                    const standardPropertiesOnly = {
+                        name: companyData.name,
+                        domain: companyData.website,
+                        phone: companyData.phone,
+                        numberofemployees: companyData.employeeCount,
+                        annualrevenue: actualRevenue,
+                        city: companyData.city,
+                        state: companyData.state,
+                        zip: companyData.zipCode,
+                        country: companyData.country,
+                        address: companyData.street
+                    };
+
+                    // Remove null/undefined values
+                    Object.keys(standardPropertiesOnly).forEach(key => {
+                        if (standardPropertiesOnly[key] === undefined || standardPropertiesOnly[key] === null) {
+                            delete standardPropertiesOnly[key];
+                        }
+                    });
+
+                    await hubspot.updateCompany(finalHubspotId, standardPropertiesOnly);
+                    console.log(`Updated HubSpot company ${finalHubspotId} with ${Object.keys(standardPropertiesOnly).length} standard fields only`);
+                    console.log('⚠️ Custom properties not created in HubSpot yet - see COMPANY_ENRICHMENT_GUIDE.md');
+                } else {
+                    throw error;
+                }
+            }
         } else {
             console.log('No HubSpot company ID - skipping HubSpot update');
         }
